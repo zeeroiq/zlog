@@ -13,7 +13,12 @@ export function createApp() {
   app.disable('x-powered-by');
   app.use(express.urlencoded({extended: false, limit: '1mb'}));
   app.use(express.json({limit: '1mb'}));
-  app.use(express.static(new URL('../public', import.meta.url).pathname, {index: false, maxAge: '1h'}));
+  const publicDirectory = new URL('../public', import.meta.url).pathname;
+  app.use(express.static(publicDirectory, {index: false, maxAge: '1h'}));
+  app.use('/console', express.static(new URL('../public/console', import.meta.url).pathname, {index: false, maxAge: '1h'}));
+  app.get(['/console', '/console/*'], (request, response, next) => {
+    response.sendFile(new URL('../public/console/index.html', import.meta.url).pathname, error => error ? next(error) : undefined);
+  });
   app.use(loadSession);
   app.use((request, response, next) => {
     request.theme = getActiveTheme();

@@ -5,6 +5,11 @@ import { defineConfig } from "vite"
 
 // https://vite.dev/config/
 export default defineConfig({
+  base: "/console/",
+  build: {
+    emptyOutDir: true,
+    outDir: resolve(import.meta.dirname, "../backend/dist/public/console"),
+  },
   plugins: [react(), tailwindcss()],
   server: {proxy: {"/api": "http://127.0.0.1:3000"}},
   resolve: {

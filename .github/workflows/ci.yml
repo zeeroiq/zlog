@@ -23,7 +23,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm test
+      - run: pnpm check
 
   deploy:
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'

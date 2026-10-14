@@ -1,8 +1,9 @@
 import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
+import {fileURLToPath} from 'node:url';
 
-const dataDirectory = process.env.ZLOG_DATA_DIR ?? path.join(process.cwd(), 'data');
+const dataDirectory = process.env.ZLOG_DATA_DIR ?? fileURLToPath(new URL('../../data/', import.meta.url));
 
 fs.mkdirSync(dataDirectory, {recursive: true});
 
