@@ -1,0 +1,10 @@
+.git
+.idea
+.env
+.env.*
+coverage
+data
+node_modules
+**/node_modules
+zlog-image.tar
+zlog-image.tar.gz
