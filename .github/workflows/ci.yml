@@ -68,29 +68,73 @@ jobs:
           printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/id_ed25519"
           printf '%s\n' "$KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/id_ed25519" "$HOME/.ssh/known_hosts"
-      - name: Transfer image and deploy
+
+      - name: Install transfer progress tool
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y pv
+
+      - name: Upload Compose configuration
+        timeout-minutes: 5
         env:
           HOST: ${{ secrets.HOST }}
           SSH_USER: ${{ secrets.SSH_USER }}
         run: |
+          echo "Uploading compose.yaml to $HOST..."
           scp -P "$SSH_PORT" \
             -o BatchMode=yes \
             -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=20 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=6 \
             compose.yaml \
             "$SSH_USER@$HOST:/opt/zlog/compose.yaml.$GITHUB_SHA"
+
+      - name: Upload Caddy configuration
+        timeout-minutes: 5
+        env:
+          HOST: ${{ secrets.HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+        run: |
+          echo "Uploading Caddyfile to $HOST..."
           scp -P "$SSH_PORT" \
             -o BatchMode=yes \
             -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=20 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=6 \
             Caddyfile \
             "$SSH_USER@$HOST:/opt/zlog/Caddyfile.$GITHUB_SHA"
-          scp -P "$SSH_PORT" \
+
+      - name: Upload deployment image
+        timeout-minutes: 30
+        env:
+          HOST: ${{ secrets.HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+        run: |
+          echo "Uploading deployment image ($(du -h zlog-image.tar.gz | cut -f1)) to $HOST:"
+          pv --force --progress --timer --eta --rate --bytes zlog-image.tar.gz | ssh -p "$SSH_PORT" \
             -o BatchMode=yes \
             -o StrictHostKeyChecking=yes \
-            zlog-image.tar.gz \
-            "$SSH_USER@$HOST:/opt/zlog/zlog-image-$GITHUB_SHA.tar.gz"
+            -o ConnectTimeout=20 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=6 \
+            "$SSH_USER@$HOST" \
+            "cat > /opt/zlog/zlog-image-$GITHUB_SHA.tar.gz"
+
+      - name: Deploy and wait for health check
+        timeout-minutes: 10
+        env:
+          HOST: ${{ secrets.HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+        run: |
+          echo "Starting remote deployment on $HOST..."
           ssh -p "$SSH_PORT" \
             -o BatchMode=yes \
             -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=20 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=6 \
             "$SSH_USER@$HOST" \
             "sh -s -- '$GITHUB_SHA'" <<'REMOTE'
           set -eu
@@ -101,7 +145,9 @@ jobs:
           if [ -f .zlog-image-tag ]; then
             previous_release=$(cat .zlog-image-tag)
           fi
+          echo "Loading deployment image..."
           docker load -i "zlog-image-$release.tar.gz"
+          echo "Deployment image loaded; updating Compose configuration..."
           if [ -f compose.yaml ]; then
             cp compose.yaml ".compose.yaml.$release.previous"
           fi
@@ -112,7 +158,9 @@ jobs:
           mv "Caddyfile.$release" Caddyfile
           printf '%s\n' "$release" > .zlog-image-tag.next
           mv .zlog-image-tag.next .zlog-image-tag
+          echo "Starting services and waiting up to 120 seconds for health checks..."
           if ! ZLOG_IMAGE_TAG="$release" docker compose up -d --wait --wait-timeout 120; then
+            echo "Deployment health check failed; restoring previous release..."
             if [ -n "$previous_release" ]; then
               printf '%s\n' "$previous_release" > .zlog-image-tag
             else
@@ -134,4 +182,5 @@ jobs:
             exit 1
           fi
           rm -f ".compose.yaml.$release.previous" ".Caddyfile.$release.previous"
+          echo "Deployment is healthy."
           REMOTE
