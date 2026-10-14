@@ -1,12 +1,3 @@
-data/
-node_modules/
-.env
-.zlog-image-tag
-.zlog-image-tag.next
-zlog-image.tar
-zlog-image.tar.gz
-coverage/
-
 # Logs
 logs
 *.log
