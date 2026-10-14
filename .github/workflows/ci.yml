@@ -34,20 +34,20 @@ jobs:
       group: zlog-production
       cancel-in-progress: false
     env:
-      OCI_PLATFORM: ${{ vars.OCI_PLATFORM || 'linux/amd64' }}
-      OCI_SSH_PORT: ${{ vars.OCI_SSH_PORT || '22' }}
+      PLATFORM: ${{ vars.PLATFORM || 'linux/amd64' }}
+      SSH_PORT: ${{ vars.SSH_PORT || '22' }}
     steps:
       - uses: actions/checkout@v7
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
       - name: Build deployment image
         run: |
-          case "$OCI_PLATFORM" in
+          case "$PLATFORM" in
             linux/amd64|linux/arm64) ;;
-            *) echo "OCI_PLATFORM must be linux/amd64 or linux/arm64" >&2; exit 1 ;;
+            *) echo "PLATFORM must be linux/amd64 or linux/arm64" >&2; exit 1 ;;
           esac
           docker buildx build \
-            --platform "$OCI_PLATFORM" \
+            --platform "$PLATFORM" \
             --tag "zlog:$GITHUB_SHA" \
             --tag zlog:latest \
             --output type=docker,dest=zlog-image.tar \
@@ -55,43 +55,43 @@ jobs:
           gzip -1 zlog-image.tar
       - name: Configure SSH
         env:
-          OCI_HOST: ${{ secrets.OCI_HOST }}
-          OCI_SSH_USER: ${{ secrets.OCI_SSH_USER }}
-          OCI_SSH_PRIVATE_KEY: ${{ secrets.OCI_SSH_PRIVATE_KEY }}
-          OCI_KNOWN_HOSTS: ${{ secrets.OCI_KNOWN_HOSTS }}
+          HOST: ${{ secrets.HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          KNOWN_HOSTS: ${{ secrets.KNOWN_HOSTS }}
         run: |
-          test -n "$OCI_HOST" || { echo "Set the OCI_HOST Actions secret" >&2; exit 1; }
-          test -n "$OCI_SSH_USER" || { echo "Set the OCI_SSH_USER Actions secret" >&2; exit 1; }
-          test -n "$OCI_SSH_PRIVATE_KEY" || { echo "Set the OCI_SSH_PRIVATE_KEY Actions secret" >&2; exit 1; }
-          test -n "$OCI_KNOWN_HOSTS" || { echo "Set the OCI_KNOWN_HOSTS Actions secret" >&2; exit 1; }
+          test -n "$HOST" || { echo "Set the HOST Actions secret" >&2; exit 1; }
+          test -n "$SSH_USER" || { echo "Set the SSH_USER Actions secret" >&2; exit 1; }
+          test -n "$SSH_PRIVATE_KEY" || { echo "Set the SSH_PRIVATE_KEY Actions secret" >&2; exit 1; }
+          test -n "$KNOWN_HOSTS" || { echo "Set the KNOWN_HOSTS Actions secret" >&2; exit 1; }
           install -m 700 -d "$HOME/.ssh"
-          printf '%s\n' "$OCI_SSH_PRIVATE_KEY" > "$HOME/.ssh/id_ed25519"
-          printf '%s\n' "$OCI_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/id_ed25519"
+          printf '%s\n' "$KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/id_ed25519" "$HOME/.ssh/known_hosts"
       - name: Transfer image and deploy
         env:
-          OCI_HOST: ${{ secrets.OCI_HOST }}
-          OCI_SSH_USER: ${{ secrets.OCI_SSH_USER }}
+          HOST: ${{ secrets.HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
         run: |
-          scp -P "$OCI_SSH_PORT" \
+          scp -P "$SSH_PORT" \
             -o BatchMode=yes \
             -o StrictHostKeyChecking=yes \
             compose.yaml \
-            "$OCI_SSH_USER@$OCI_HOST:/opt/zlog/compose.yaml.$GITHUB_SHA"
-          scp -P "$OCI_SSH_PORT" \
+            "$SSH_USER@$HOST:/opt/zlog/compose.yaml.$GITHUB_SHA"
+          scp -P "$SSH_PORT" \
             -o BatchMode=yes \
             -o StrictHostKeyChecking=yes \
             Caddyfile \
-            "$OCI_SSH_USER@$OCI_HOST:/opt/zlog/Caddyfile.$GITHUB_SHA"
-          scp -P "$OCI_SSH_PORT" \
+            "$SSH_USER@$HOST:/opt/zlog/Caddyfile.$GITHUB_SHA"
+          scp -P "$SSH_PORT" \
             -o BatchMode=yes \
             -o StrictHostKeyChecking=yes \
             zlog-image.tar.gz \
-            "$OCI_SSH_USER@$OCI_HOST:/opt/zlog/zlog-image-$GITHUB_SHA.tar.gz"
-          ssh -p "$OCI_SSH_PORT" \
+            "$SSH_USER@$HOST:/opt/zlog/zlog-image-$GITHUB_SHA.tar.gz"
+          ssh -p "$SSH_PORT" \
             -o BatchMode=yes \
             -o StrictHostKeyChecking=yes \
-            "$OCI_SSH_USER@$OCI_HOST" \
+            "$SSH_USER@$HOST" \
             "sh -s -- '$GITHUB_SHA'" <<'REMOTE'
           set -eu
           release=$1
