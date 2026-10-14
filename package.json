@@ -1,0 +1,22 @@
+{
+  "name": "zlog",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A deliberately small single-author blog",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "setup-owner": "node src/setup-owner.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "better-sqlite3": "12.11.1",
+    "express": "4.22.3",
+    "marked": "15.0.7",
+    "sanitize-html": "2.17.0"
+  }
+}

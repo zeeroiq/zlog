@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "name": "journal",
+  "label": "Journal",
+  "description": "A higher-contrast, typographic journal style.",
+  "assets": ["theme.css"]
+}

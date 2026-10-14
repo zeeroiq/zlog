@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "name": "default",
+  "label": "Default",
+  "description": "A quiet editorial reading experience.",
+  "assets": ["theme.css"]
+}

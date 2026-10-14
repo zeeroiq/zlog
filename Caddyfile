@@ -1,0 +1,4 @@
+{$ZLOG_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy zlog:3000
+}
