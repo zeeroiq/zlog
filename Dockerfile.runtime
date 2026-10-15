@@ -1,0 +1,14 @@
+FROM gcr.io/distroless/nodejs22-debian13:nonroot
+
+ENV NODE_ENV=production \
+    PORT=3000 \
+    ZLOG_DATA_DIR=/app/data
+
+WORKDIR /app/backend
+COPY --chown=1000:1000 node_modules ./node_modules
+COPY --chown=1000:1000 backend/package.json ./
+COPY --chown=1000:1000 backend/dist ./
+
+USER 1000:1000
+EXPOSE 3000
+CMD ["src/server.js"]

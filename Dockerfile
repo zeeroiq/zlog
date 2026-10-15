@@ -18,7 +18,13 @@ FROM build AS production-dependencies
 RUN pnpm --filter zlog-backend deploy --prod --legacy /app/deploy/backend
 RUN mkdir -p /app/data && chown 1000:1000 /app/data
 
-FROM gcr.io/distroless/nodejs22-debian13:nonroot
+FROM scratch AS release-artifact
+COPY --from=production-dependencies /app/deploy/backend/node_modules /node_modules
+COPY --from=build /app/backend/package.json /backend/package.json
+COPY --from=build /app/backend/dist /backend/dist
+COPY Dockerfile.runtime /Dockerfile
+
+FROM gcr.io/distroless/nodejs22-debian13:nonroot AS runtime
 
 ENV NODE_ENV=production \
     PORT=3000 \

@@ -40,7 +40,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
-      - name: Build deployment image
+      - name: Package deployment release
         run: |
           case "$PLATFORM" in
             linux/amd64|linux/arm64) ;;
@@ -48,11 +48,10 @@ jobs:
           esac
           docker buildx build \
             --platform "$PLATFORM" \
-            --tag "zlog:$GITHUB_SHA" \
-            --tag zlog:latest \
-            --output type=docker,dest=zlog-image.tar \
+            --target release-artifact \
+            --output type=local,dest=release \
             .
-          gzip -1 zlog-image.tar
+          tar -C release -czf zlog-release.tar.gz .
       - name: Configure SSH
         env:
           HOST: ${{ secrets.HOST }}
@@ -68,11 +67,6 @@ jobs:
           printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/id_ed25519"
           printf '%s\n' "$KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/id_ed25519" "$HOME/.ssh/known_hosts"
-
-      - name: Install transfer progress tool
-        run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y pv
 
       - name: Upload Compose configuration
         timeout-minutes: 5
@@ -106,21 +100,62 @@ jobs:
             Caddyfile \
             "$SSH_USER@$HOST:/opt/zlog/Caddyfile.$GITHUB_SHA"
 
-      - name: Upload deployment image
-        timeout-minutes: 30
+      - name: Upload deployment release
+        timeout-minutes: 90
         env:
           HOST: ${{ secrets.HOST }}
           SSH_USER: ${{ secrets.SSH_USER }}
         run: |
-          echo "Uploading deployment image ($(du -h zlog-image.tar.gz | cut -f1)) to $HOST:"
-          pv --force --progress --timer --eta --rate --bytes zlog-image.tar.gz | ssh -p "$SSH_PORT" \
-            -o BatchMode=yes \
-            -o StrictHostKeyChecking=yes \
-            -o ConnectTimeout=20 \
-            -o ServerAliveInterval=30 \
-            -o ServerAliveCountMax=6 \
-            "$SSH_USER@$HOST" \
-            "cat > /opt/zlog/zlog-image-$GITHUB_SHA.tar.gz"
+          set -euo pipefail
+          release_path=zlog-release.tar.gz
+          remote_path="/opt/zlog/zlog-release-$GITHUB_SHA.tar.gz"
+          partial_path="$remote_path.part"
+          release_size=$(stat -c '%s' "$release_path")
+          release_checksum=$(sha256sum "$release_path" | cut -d ' ' -f 1)
+          ssh_options=(
+            -p "$SSH_PORT"
+            -o BatchMode=yes
+            -o StrictHostKeyChecking=yes
+            -o ConnectTimeout=20
+            -o ServerAliveInterval=30
+            -o ServerAliveCountMax=6
+          )
+          echo "Deployment release is $(du -h "$release_path" | cut -f1); SHA-256: $release_checksum"
+          remote_state=$(ssh "${ssh_options[@]}" "$SSH_USER@$HOST" "if [ -f '$remote_path' ]; then printf 'complete '; wc -c < '$remote_path'; elif [ -f '$partial_path' ]; then printf 'partial '; wc -c < '$partial_path'; else printf 'missing 0\\n'; fi")
+          read -r remote_status remote_size <<< "$remote_state"
+          if [[ "$remote_status" == complete ]]; then
+            remote_checksum=$(ssh "${ssh_options[@]}" "$SSH_USER@$HOST" "sha256sum '$remote_path' | cut -d ' ' -f 1")
+            if [[ "$remote_size" == "$release_size" && "$remote_checksum" == "$release_checksum" ]]; then
+              echo "A verified copy of this release is already on $HOST; skipping transfer."
+              exit 0
+            fi
+            echo "Existing complete release failed size/checksum verification; restarting transfer."
+            ssh "${ssh_options[@]}" "$SSH_USER@$HOST" "rm -f '$remote_path' '$partial_path'"
+            remote_status=missing
+            remote_size=0
+          fi
+          if ! [[ "$remote_size" =~ ^[0-9]+$ ]] || (( remote_size > release_size )); then
+            echo "Remote partial release has an invalid size; restarting transfer."
+            ssh "${ssh_options[@]}" "$SSH_USER@$HOST" "rm -f '$partial_path'"
+            remote_size=0
+          fi
+          remaining_size=$((release_size - remote_size))
+          echo "Uploading release to $HOST, resuming at $remote_size of $release_size bytes..."
+          if (( remaining_size > 0 )); then
+            tail -c "+$((remote_size + 1))" "$release_path" \
+              | dd status=progress \
+              | ssh "${ssh_options[@]}" "$SSH_USER@$HOST" "cat >> '$partial_path'"
+          fi
+          echo "Verifying uploaded release checksum on $HOST..."
+          remote_size=$(ssh "${ssh_options[@]}" "$SSH_USER@$HOST" "wc -c < '$partial_path'")
+          remote_checksum=$(ssh "${ssh_options[@]}" "$SSH_USER@$HOST" "sha256sum '$partial_path' | cut -d ' ' -f 1")
+          if [[ "$remote_size" != "$release_size" || "$remote_checksum" != "$release_checksum" ]]; then
+            ssh "${ssh_options[@]}" "$SSH_USER@$HOST" "rm -f '$partial_path'"
+            echo "Uploaded release failed size or SHA-256 verification; partial file removed." >&2
+            exit 1
+          fi
+          ssh "${ssh_options[@]}" "$SSH_USER@$HOST" "mv '$partial_path' '$remote_path'"
+          echo "Release upload and checksum verification completed."
 
       - name: Deploy and wait for health check
         timeout-minutes: 10
@@ -140,14 +175,18 @@ jobs:
           set -eu
           release=$1
           cd /opt/zlog
-          trap 'rm -f "/opt/zlog/zlog-image-$release.tar.gz" "/opt/zlog/compose.yaml.$release" "/opt/zlog/Caddyfile.$release" "/opt/zlog/.compose.yaml.$release.previous" "/opt/zlog/.Caddyfile.$release.previous"' EXIT
+          release_dir="/opt/zlog/releases/$release"
+          trap 'rm -f "/opt/zlog/zlog-release-$release.tar.gz" "/opt/zlog/compose.yaml.$release" "/opt/zlog/Caddyfile.$release" "/opt/zlog/.compose.yaml.$release.previous" "/opt/zlog/.Caddyfile.$release.previous"; rm -rf "$release_dir"' EXIT
           previous_release=
           if [ -f .zlog-image-tag ]; then
             previous_release=$(cat .zlog-image-tag)
           fi
-          echo "Loading deployment image..."
-          docker load -i "zlog-image-$release.tar.gz"
-          echo "Deployment image loaded; updating Compose configuration..."
+          echo "Extracting release bundle..."
+          mkdir -p "$release_dir"
+          tar -xzf "zlog-release-$release.tar.gz" -C "$release_dir"
+          echo "Building small runtime image on the OCI instance..."
+          docker build --tag "zlog:$release" "$release_dir"
+          echo "Runtime image built; updating Compose configuration..."
           if [ -f compose.yaml ]; then
             cp compose.yaml ".compose.yaml.$release.previous"
           fi
@@ -181,6 +220,7 @@ jobs:
             fi
             exit 1
           fi
+          docker tag "zlog:$release" zlog:latest
           rm -f ".compose.yaml.$release.previous" ".Caddyfile.$release.previous"
           echo "Deployment is healthy."
           REMOTE
