@@ -175,6 +175,8 @@ jobs:
           release=$1
           cd /opt/zlog
           compose_file=/opt/zlog/compose.yaml
+          release_compose_file="/opt/zlog/compose.yaml.$release"
+          release_caddy_file="/opt/zlog/Caddyfile.$release"
           release_dir="/opt/zlog/releases/$release"
           trap 'rm -f "/opt/zlog/zlog-release-$release.tar.gz" "/opt/zlog/compose.yaml.$release" "/opt/zlog/Caddyfile.$release" "/opt/zlog/.compose.yaml.$release.previous" "/opt/zlog/.Caddyfile.$release.previous"; rm -rf "$release_dir"' EXIT
           previous_release=
@@ -193,25 +195,28 @@ jobs:
           echo "Build context: $(du -sh "$release_dir" | cut -f1)"
           tar -C "$release_dir" -cf - . | docker build --tag "zlog:$release" -
           echo "Runtime image built; updating Compose configuration..."
+          if [ ! -s "$release_compose_file" ] || [ ! -s "$release_caddy_file" ]; then
+            echo "Uploaded release configuration is missing or empty:" >&2
+            ls -l "$release_compose_file" "$release_caddy_file" >&2 || true
+            ls -la /opt/zlog >&2
+            exit 1
+          fi
+          echo "Validating uploaded Compose file $release_compose_file..."
+          ZLOG_IMAGE_TAG="$release" docker compose --project-directory /opt/zlog --file "$release_compose_file" config --quiet
           if [ -f compose.yaml ]; then
             cp compose.yaml ".compose.yaml.$release.previous"
           fi
           if [ -f Caddyfile ]; then
             cp Caddyfile ".Caddyfile.$release.previous"
           fi
-          mv "compose.yaml.$release" compose.yaml
-          mv "Caddyfile.$release" Caddyfile
+          cp "$release_compose_file" "$compose_file.next"
+          mv "$compose_file.next" "$compose_file"
+          cp "$release_caddy_file" Caddyfile.next
+          mv Caddyfile.next Caddyfile
           printf '%s\n' "$release" > .zlog-image-tag.next
           mv .zlog-image-tag.next .zlog-image-tag
-          if [ ! -s "$compose_file" ]; then
-            echo "Compose configuration is missing after promotion; deployment directory contents:" >&2
-            ls -la /opt/zlog >&2
-            exit 1
-          fi
-          echo "Validating Compose configuration at $compose_file..."
-          ZLOG_IMAGE_TAG="$release" docker compose --project-directory /opt/zlog --file "$compose_file" config --quiet
-          echo "Starting services and waiting up to 120 seconds for health checks..."
-          if ! ZLOG_IMAGE_TAG="$release" docker compose --project-directory /opt/zlog --file "$compose_file" up -d --wait --wait-timeout 120; then
+          echo "Starting services with $release_compose_file and waiting up to 120 seconds for health checks..."
+          if ! ZLOG_IMAGE_TAG="$release" docker compose --project-directory /opt/zlog --file "$release_compose_file" up -d --wait --wait-timeout 120; then
             echo "Deployment health check failed; restoring previous release..."
             if [ -n "$previous_release" ]; then
               printf '%s\n' "$previous_release" > .zlog-image-tag
