@@ -171,8 +171,7 @@ jobs:
             -o ServerAliveInterval=30 \
             -o ServerAliveCountMax=6 \
             "$SSH_USER@$HOST" \
-            "sh -s -- '$GITHUB_SHA'" <<'REMOTE'
-          set -eu
+            "bash -seuo pipefail -- '$GITHUB_SHA'" <<'REMOTE'
           release=$1
           cd /opt/zlog
           release_dir="/opt/zlog/releases/$release"
@@ -184,8 +183,14 @@ jobs:
           echo "Extracting release bundle..."
           mkdir -p "$release_dir"
           tar -xzf "zlog-release-$release.tar.gz" -C "$release_dir"
+          if [ ! -s "$release_dir/Dockerfile" ]; then
+            echo "Release bundle is missing its Dockerfile; extracted files:" >&2
+            find "$release_dir" -maxdepth 2 -type f -print >&2
+            exit 1
+          fi
           echo "Building small runtime image on the OCI instance..."
-          docker build --tag "zlog:$release" "$release_dir"
+          echo "Build context: $(du -sh "$release_dir" | cut -f1)"
+          tar -C "$release_dir" -cf - . | docker build --tag "zlog:$release" -
           echo "Runtime image built; updating Compose configuration..."
           if [ -f compose.yaml ]; then
             cp compose.yaml ".compose.yaml.$release.previous"
