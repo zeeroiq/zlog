@@ -45,7 +45,57 @@ export function home(posts, excerpt) {
       <p>${escapeHtml(excerpt(post.body_markdown))}</p>
     </article>`).join('')
     : '<p class="empty">No posts have been published yet.</p>';
-  return `<section class="intro"><h1>Notes from Zlog</h1></section><section>${cards}</section>`;
+  return `<section class="intro"><h1>Notes from Zlog</h1></section><section>${cards}</section>${subscribeForm()}`;
+}
+
+function subscribeForm() {
+  return `<section class="subscribe-section">
+  <h2>Stay in the loop</h2>
+  <p class="subscribe-desc">Get new posts delivered straight to your inbox.</p>
+  <form class="subscribe-form" id="subscribe-form">
+    <label class="sr-only" for="subscribe-email">Email address</label>
+    <input id="subscribe-email" name="email" type="email" placeholder="you@example.com" autocomplete="email" required>
+    <button type="submit">Subscribe</button>
+  </form>
+  <p class="subscribe-feedback" id="subscribe-feedback" aria-live="polite"></p>
+</section>
+<script>
+(function () {
+  const form = document.getElementById('subscribe-form');
+  const feedback = document.getElementById('subscribe-feedback');
+  if (!form) return;
+  form.addEventListener('submit', async function (event) {
+    event.preventDefault();
+    const email = form.email.value.trim();
+    const btn = form.querySelector('button[type="submit"]');
+    btn.disabled = true;
+    feedback.textContent = '';
+    feedback.className = 'subscribe-feedback';
+    try {
+      const res = await fetch('/api/newsletter/subscribe', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({email}),
+        credentials: 'same-origin'
+      });
+      const data = await res.json();
+      if (res.ok) {
+        feedback.textContent = data.message ?? 'Subscribed! Thank you.';
+        feedback.className = 'subscribe-feedback notice';
+        form.reset();
+      } else {
+        feedback.textContent = data.error ?? 'Something went wrong. Please try again.';
+        feedback.className = 'subscribe-feedback error';
+      }
+    } catch (_) {
+      feedback.textContent = 'Network error. Please try again.';
+      feedback.className = 'subscribe-feedback error';
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}());
+</script>`;
 }
 
 export function publicPost(post, html) {
@@ -60,11 +110,21 @@ export function login(error = '') {
   </form></section>`;
 }
 
-export function dashboard(posts, session, notice = '', themes = [], activeTheme = '') {
-  const rows = posts.length ? posts.map(post => `<tr>
+export function dashboard(posts, session, notice = '', themes = [], activeTheme = '', analytics = {}, subscribers = []) {
+  // Per-post view map: slug -> { views, unique_visitors, repeat_views, returning_visitors }
+  const postViewMap = Object.fromEntries(
+    (analytics.postViews ?? []).map(pv => [pv.slug, pv])
+  );
+
+  const rows = posts.length ? posts.map(post => {
+    const pv = postViewMap[post.slug] ?? {views: 0, unique_visitors: 0, repeat_views: 0};
+    return `<tr>
     <td><a href="/dashboard/posts/${post.id}/edit">${escapeHtml(post.title)}</a></td>
     <td>${escapeHtml(post.status)}</td>
     <td>${post.published_at ? formatDate(post.published_at) : 'Not published'}</td>
+    <td class="num">${pv.views}</td>
+    <td class="num">${pv.unique_visitors}</td>
+    <td class="num">${pv.repeat_views ?? 0}</td>
     <td class="actions">
       <a href="/dashboard/posts/${post.id}/edit">Edit</a>
       <form method="post" action="/dashboard/posts/${post.id}/status" class="inline-form">
@@ -77,9 +137,100 @@ export function dashboard(posts, session, notice = '', themes = [], activeTheme 
         <button type="submit" class="link-button danger">Delete</button>
       </form>
     </td>
-  </tr>`).join('') : '<tr><td colspan="4">No posts yet.</td></tr>';
+  </tr>`;
+  }).join('') : '<tr><td colspan="7">No posts yet.</td></tr>';
+
   const options = themes.map(theme => `<option value="${escapeHtml(theme.name)}"${theme.name === activeTheme ? ' selected' : ''}>${escapeHtml(theme.label)}</option>`).join('');
-  return `<section class="dashboard-heading"><div><h1>Posts</h1><p>${escapeHtml(session.email)}</p></div><a class="button" href="/dashboard/posts/new">New post</a></section>${message(notice, 'notice')}<section class="theme-picker"><form method="post" action="/dashboard/theme"><input type="hidden" name="_csrf" value="${escapeHtml(session.csrf_token)}"><label>Theme<select name="theme">${options}</select></label><button type="submit">Apply</button></form></section><table><thead><tr><th>Title</th><th>Status</th><th>Published</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table>`;
+
+  const totalViews = analytics.totalViews ?? 0;
+  const uniqueVisitors = analytics.uniqueVisitors ?? 0;
+  const returningVisitors = analytics.returningVisitors ?? 0;
+  const repeatViews = analytics.repeatViews ?? 0;
+  const subscriberCount = analytics.subscriberCount ?? 0;
+  const devices = analytics.devices ?? {desktop: 0, mobile: 0, tablet: 0};
+  const visitors = analytics.visitors ?? [];
+  const recentActivity = analytics.recentActivity ?? [];
+
+  const statsBar = `<section class="stats-bar">
+    <div class="stat-card"><span class="stat-value">${totalViews}</span><span class="stat-label">Total views</span></div>
+    <div class="stat-card"><span class="stat-value">${uniqueVisitors}</span><span class="stat-label">Unique visitors</span></div>
+    <div class="stat-card"><span class="stat-value">${returningVisitors}</span><span class="stat-label">Returning visitors</span></div>
+    <div class="stat-card"><span class="stat-value">${repeatViews}</span><span class="stat-label">Repeat views</span></div>
+    <div class="stat-card"><span class="stat-value">${subscriberCount}</span><span class="stat-label">Subscribers</span></div>
+  </section>
+  <section class="device-bar">
+    <span class="device-label">Devices —</span>
+    <span class="device-pill">🖥 Desktop <strong>${devices.desktop}</strong></span>
+    <span class="device-pill">📱 Mobile <strong>${devices.mobile}</strong></span>
+    <span class="device-pill">⬜ Tablet <strong>${devices.tablet}</strong></span>
+  </section>`;
+
+  const visitorRows = visitors.length
+    ? visitors.map(v => {
+      const badge = v.is_returning
+        ? `<span class="badge badge-returning">Returning (${v.total_visits}x)</span>`
+        : `<span class="badge badge-new">New (1x)</span>`;
+      return `<tr>
+          <td><code>${escapeHtml(v.ip_address)}</code></td>
+          <td>${escapeHtml(v.os)} · ${escapeHtml(v.browser)}</td>
+          <td>${escapeHtml(v.device_type)}</td>
+          <td>${badge}</td>
+          <td class="num">${v.unique_pages}</td>
+          <td>${formatDateTime(v.last_seen)}</td>
+        </tr>`;
+    }).join('')
+    : '<tr><td colspan="6">No visitor traffic recorded yet.</td></tr>';
+
+  const activityRows = recentActivity.length
+    ? recentActivity.map(a => {
+      const badge = a.is_returning
+        ? `<span class="badge badge-returning">Returning (#${a.visit_number})</span>`
+        : `<span class="badge badge-new">New</span>`;
+      const pageRepeatBadge = a.is_page_repeat
+        ? `<span class="badge badge-repeat">Page repeat</span>`
+        : '';
+      return `<tr>
+          <td>${formatDateTime(a.viewed_at)}</td>
+          <td><code>${escapeHtml(a.path)}</code></td>
+          <td><code>${escapeHtml(a.ip_address)}</code></td>
+          <td>${escapeHtml(a.os)} · ${escapeHtml(a.browser)}</td>
+          <td>${badge} ${pageRepeatBadge}</td>
+        </tr>`;
+    }).join('')
+    : '<tr><td colspan="5">No recent activity yet.</td></tr>';
+
+  const subscriberRows = subscribers.length
+    ? subscribers.map(sub => `<tr>
+        <td>${escapeHtml(sub.email)}</td>
+        <td>${formatDate(sub.subscribed_at)}</td>
+        <td class="actions">
+          <form method="post" action="/dashboard/subscribers/${sub.id}/delete" class="inline-form" onsubmit="return confirm('Remove subscriber?');">
+            <input type="hidden" name="_csrf" value="${escapeHtml(session.csrf_token)}">
+            <button type="submit" class="link-button danger">Remove</button>
+          </form>
+        </td>
+      </tr>`).join('')
+    : '<tr><td colspan="3">No subscribers yet.</td></tr>';
+
+  return `<section class="dashboard-heading"><div><h1>Posts</h1><p>${escapeHtml(session.email)}</p></div><a class="button" href="/dashboard/posts/new">New post</a></section>${message(notice, 'notice')}${statsBar}<section class="theme-picker"><form method="post" action="/dashboard/theme"><input type="hidden" name="_csrf" value="${escapeHtml(session.csrf_token)}"><label>Theme<select name="theme">${options}</select></label><button type="submit">Apply</button></form></section>
+<section>
+  <h2>Posts &amp; Page Views</h2>
+  <table><thead><tr><th>Title</th><th>Status</th><th>Published</th><th>Views</th><th>Unique</th><th>Repeat</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table>
+</section>
+
+<section class="analytics-section">
+  <h2>Identified Visitors &amp; Nodes</h2>
+  <p class="section-hint">Identifies repeat systems, nodes, and visitors across your blog.</p>
+  <table><thead><tr><th>Node / IP</th><th>System (OS &amp; Browser)</th><th>Device</th><th>Visits</th><th>Pages</th><th>Last Seen</th></tr></thead><tbody>${visitorRows}</tbody></table>
+</section>
+
+<section class="analytics-section">
+  <h2>Recent Activity Stream</h2>
+  <p class="section-hint">Real-time log of page views with returning visitor status.</p>
+  <table><thead><tr><th>Time</th><th>Page</th><th>Node / IP</th><th>System</th><th>Visit Status</th></tr></thead><tbody>${activityRows}</tbody></table>
+</section>
+
+<section class="subscribers-section"><h2>Newsletter subscribers</h2><table><thead><tr><th>Email</th><th>Subscribed</th><th>Actions</th></tr></thead><tbody>${subscriberRows}</tbody></table></section>`;
 }
 
 export function postForm({post, session, error = '', isNew = false}) {
@@ -100,4 +251,9 @@ export function message(text, kind) {
 
 export function formatDate(value) {
   return new Intl.DateTimeFormat('en', {dateStyle: 'long'}).format(new Date(value));
+}
+
+export function formatDateTime(value) {
+  if (!value) return '—';
+  return new Intl.DateTimeFormat('en', {dateStyle: 'short', timeStyle: 'short'}).format(new Date(value));
 }

@@ -4,12 +4,36 @@ import {requireCsrf, requireOwner} from '../../middleware/owner.js';
 import {createPost, deletePost, getPost, listPosts, setPostStatus, updatePost} from '../../posts.js';
 import {listThemes, setActiveTheme} from '../../themes/registry.js';
 import {dashboard, postForm} from '../../views.js';
+import {
+  getTotalPageViews,
+  getPostViewCounts,
+  getTotalUniqueVisitors,
+  getReturningVisitorCount,
+  getRepeatViewsCount,
+  getDeviceBreakdown,
+  getVisitorsSummary,
+  getRecentVisitorActivity,
+} from '../analytics/analytics.js';
+import {listSubscribers, getSubscriberCount, deleteSubscriber} from '../newsletter/newsletter.js';
 
 export const dashboardRouter = Router();
 dashboardRouter.use(requireOwner);
 
 dashboardRouter.get('/', (request, response) => {
-  response.send(renderPage(request, 'Dashboard', dashboard(listPosts(), request.session, request.query.notice, listThemes(), request.theme.name)));
+  const posts = listPosts();
+  const analytics = {
+    totalViews:        getTotalPageViews(),
+    uniqueVisitors:    getTotalUniqueVisitors(),
+    returningVisitors: getReturningVisitorCount(),
+    repeatViews:       getRepeatViewsCount(),
+    devices:           getDeviceBreakdown(),
+    postViews:         getPostViewCounts(),
+    visitors:          getVisitorsSummary(20),
+    recentActivity:    getRecentVisitorActivity(20),
+    subscriberCount:   getSubscriberCount(),
+  };
+  const subscribers = listSubscribers();
+  response.send(renderPage(request, 'Dashboard', dashboard(posts, request.session, request.query.notice, listThemes(), request.theme.name, analytics, subscribers)));
 });
 
 dashboardRouter.post('/theme', requireCsrf, (request, response) => {
@@ -71,6 +95,11 @@ dashboardRouter.post('/posts/:id/delete', requireCsrf, (request, response) => {
     return renderNotFound(request, response);
   }
   response.redirect('/dashboard?notice=Post%20deleted.');
+});
+
+dashboardRouter.post('/subscribers/:id/delete', requireCsrf, (request, response) => {
+  deleteSubscriber(request.params.id);
+  response.redirect('/dashboard?notice=Subscriber%20removed.');
 });
 
 function emptyPost() {

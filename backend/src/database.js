@@ -48,8 +48,68 @@ db.exec(`
     value TEXT NOT NULL,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
+
+  CREATE TABLE IF NOT EXISTS page_views (
+    id INTEGER PRIMARY KEY,
+    path TEXT NOT NULL,
+    visitor_id TEXT,
+    ip_address TEXT,
+    ip_hash TEXT,
+    device_type TEXT CHECK (device_type IN ('desktop', 'mobile', 'tablet', 'bot')) DEFAULT 'desktop',
+    os TEXT,
+    browser TEXT,
+    user_agent TEXT,
+    is_returning INTEGER NOT NULL DEFAULT 0,
+    is_page_repeat INTEGER NOT NULL DEFAULT 0,
+    visit_number INTEGER NOT NULL DEFAULT 1,
+    viewed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE INDEX IF NOT EXISTS page_views_path_index ON page_views(path);
+
+  CREATE TABLE IF NOT EXISTS subscribers (
+    id INTEGER PRIMARY KEY,
+    email TEXT NOT NULL UNIQUE,
+    confirmed INTEGER NOT NULL DEFAULT 0,
+    subscribed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
 `);
 
 export function closeDatabase() {
   db.close();
 }
+
+// ---------------------------------------------------------------------------
+// Schema migrations — ADD COLUMN is idempotent-safe via the existence check.
+// SQLite does not support IF NOT EXISTS on ALTER TABLE, so we inspect the
+// current column list first and only run the statement when needed.
+// ---------------------------------------------------------------------------
+(function migratePageViews() {
+  const existing = new Set(
+    db.prepare('PRAGMA table_info(page_views)').all().map(c => c.name)
+  );
+  const additions = [
+    ['visitor_id',     'TEXT'],
+    ['ip_address',     'TEXT'],
+    ['ip_hash',        'TEXT'],
+    ['device_type',    "TEXT CHECK(device_type IN ('desktop','mobile','tablet','bot')) DEFAULT 'desktop'"],
+    ['os',             'TEXT'],
+    ['browser',        'TEXT'],
+    ['user_agent',     'TEXT'],
+    ['is_returning',   'INTEGER NOT NULL DEFAULT 0'],
+    ['is_page_repeat', 'INTEGER NOT NULL DEFAULT 0'],
+    ['visit_number',   'INTEGER NOT NULL DEFAULT 1'],
+  ];
+  for (const [col, def] of additions) {
+    if (!existing.has(col)) {
+      db.exec(`ALTER TABLE page_views ADD COLUMN ${col} ${def}`);
+    }
+  }
+  // Indexes on added columns — safe to run after columns are ensured to exist.
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS page_views_path_index ON page_views(path);
+    CREATE INDEX IF NOT EXISTS page_views_visitor_index ON page_views(visitor_id);
+    CREATE INDEX IF NOT EXISTS page_views_ip_index ON page_views(ip_address);
+    CREATE INDEX IF NOT EXISTS page_views_viewed_at_index ON page_views(viewed_at DESC);
+  `);
+}());
