@@ -12,10 +12,15 @@ import {
   getReturningVisitorCount,
   getRepeatViewsCount,
   getDeviceBreakdown,
+  getCountryBreakdown,
   getOsBreakdown,
   getBrowserBreakdown,
   getVisitorsSummary,
   getRecentVisitorActivity,
+  getTotalVisitorsCount,
+  getTotalActivityCount,
+  deletePageView,
+  deleteVisitorRecords,
 } from '../analytics/analytics.js';
 import {subscribe, listSubscribers, deleteSubscriber, getSubscriberCount} from '../newsletter/newsletter.js';
 
@@ -42,19 +47,39 @@ apiRouter.post('/admin/theme', owner, csrf, (request, response) => mutate(respon
 
 // Analytics — owner-only
 apiRouter.get('/admin/analytics', owner, (request, response) => {
+  const visitorsLimit = Math.min(100, Math.max(1, Number(request.query.visitorsLimit) || 100));
+  const visitorsOffset = Math.max(0, Number(request.query.visitorsOffset) || 0);
+  const activityLimit = Math.min(100, Math.max(1, Number(request.query.activityLimit) || 100));
+  const activityOffset = Math.max(0, Number(request.query.activityOffset) || 0);
+
   response.json({
     totalViews: getTotalPageViews(),
     uniqueVisitors: getTotalUniqueVisitors(),
     returningVisitors: getReturningVisitorCount(),
     repeatViews: getRepeatViewsCount(),
     devices: getDeviceBreakdown(),
+    countries: getCountryBreakdown(8),
     os: getOsBreakdown(5),
     browsers: getBrowserBreakdown(5),
     topPaths: getTopPaths(10),
     postViews: getPostViewCounts(),
-    visitors: getVisitorsSummary(50),
-    recentActivity: getRecentVisitorActivity(25),
+    totalVisitors: getTotalVisitorsCount(),
+    totalActivity: getTotalActivityCount(),
+    visitors: getVisitorsSummary({limit: visitorsLimit, offset: visitorsOffset}),
+    recentActivity: getRecentVisitorActivity({limit: activityLimit, offset: activityOffset}),
   });
+});
+
+apiRouter.delete('/admin/analytics/views/:id', owner, csrf, (request, response) => {
+  return deletePageView(request.params.id)
+    ? response.status(204).end()
+    : response.status(404).json({error: 'Record not found.'});
+});
+
+apiRouter.delete('/admin/analytics/visitors/:visitorId', owner, csrf, (request, response) => {
+  return deleteVisitorRecords(request.params.visitorId)
+    ? response.status(204).end()
+    : response.status(404).json({error: 'Visitor records not found.'});
 });
 
 // Newsletter — public subscribe, admin list/delete

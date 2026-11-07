@@ -36,6 +36,7 @@ function track(request, path) {
     visitorId: request.visitorId,
     ipAddress: rawIp,
     userAgent: request.headers['user-agent'],
+    headers: request.headers,
   });
 }
 

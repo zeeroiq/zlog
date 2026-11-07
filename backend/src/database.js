@@ -55,6 +55,8 @@ db.exec(`
     visitor_id TEXT,
     ip_address TEXT,
     ip_hash TEXT,
+    country TEXT,
+    city TEXT,
     device_type TEXT CHECK (device_type IN ('desktop', 'mobile', 'tablet', 'bot')) DEFAULT 'desktop',
     os TEXT,
     browser TEXT,
@@ -92,6 +94,8 @@ export function closeDatabase() {
     ['visitor_id',     'TEXT'],
     ['ip_address',     'TEXT'],
     ['ip_hash',        'TEXT'],
+    ['country',        'TEXT'],
+    ['city',           'TEXT'],
     ['device_type',    "TEXT CHECK(device_type IN ('desktop','mobile','tablet','bot')) DEFAULT 'desktop'"],
     ['os',             'TEXT'],
     ['browser',        'TEXT'],
@@ -110,6 +114,7 @@ export function closeDatabase() {
     CREATE INDEX IF NOT EXISTS page_views_path_index ON page_views(path);
     CREATE INDEX IF NOT EXISTS page_views_visitor_index ON page_views(visitor_id);
     CREATE INDEX IF NOT EXISTS page_views_ip_index ON page_views(ip_address);
+    CREATE INDEX IF NOT EXISTS page_views_country_index ON page_views(country);
     CREATE INDEX IF NOT EXISTS page_views_viewed_at_index ON page_views(viewed_at DESC);
   `);
 }());

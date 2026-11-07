@@ -128,3 +128,39 @@
     @apply font-sans;
     }
 }
+
+
+/* Shadow scroll container for tables with sticky header */
+.shadow-scroll-container {
+  overflow: auto;
+  max-height: 440px;
+  position: relative;
+  border-radius: var(--radius-md);
+  background:
+    linear-gradient(var(--card) 30%, rgba(255, 255, 255, 0)),
+    linear-gradient(rgba(255, 255, 255, 0), var(--card) 70%) 0 100%,
+    radial-gradient(farthest-side at 50% 0, rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0)),
+    radial-gradient(farthest-side at 50% 100%, rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0)) 0 100%;
+  background-repeat: no-repeat;
+  background-size: 100% 40px, 100% 40px, 100% 14px, 100% 14px;
+  background-attachment: local, local, scroll, scroll;
+}
+
+.dark .shadow-scroll-container {
+  background:
+    linear-gradient(var(--card) 30%, rgba(0, 0, 0, 0)),
+    linear-gradient(rgba(0, 0, 0, 0), var(--card) 70%) 0 100%,
+    radial-gradient(farthest-side at 50% 0, rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0)),
+    radial-gradient(farthest-side at 50% 100%, rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0)) 0 100%;
+  background-repeat: no-repeat;
+  background-size: 100% 40px, 100% 40px, 100% 14px, 100% 14px;
+  background-attachment: local, local, scroll, scroll;
+}
+
+.shadow-scroll-container table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--card);
+  z-index: 10;
+  box-shadow: 0 1px 0 var(--border);
+}

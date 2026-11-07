@@ -148,8 +148,15 @@ export function dashboard(posts, session, notice = '', themes = [], activeTheme 
   const repeatViews = analytics.repeatViews ?? 0;
   const subscriberCount = analytics.subscriberCount ?? 0;
   const devices = analytics.devices ?? {desktop: 0, mobile: 0, tablet: 0};
+  const countries = analytics.countries ?? [];
   const visitors = analytics.visitors ?? [];
   const recentActivity = analytics.recentActivity ?? [];
+
+  const vPage = analytics.vPage ?? 1;
+  const aPage = analytics.aPage ?? 1;
+  const pageSize = analytics.pageSize ?? 10;
+  const totalVisitors = analytics.totalVisitors ?? visitors.length;
+  const totalActivity = analytics.totalActivity ?? recentActivity.length;
 
   const statsBar = `<section class="stats-bar">
     <div class="stat-card"><span class="stat-value">${totalViews}</span><span class="stat-label">Total views</span></div>
@@ -163,7 +170,11 @@ export function dashboard(posts, session, notice = '', themes = [], activeTheme 
     <span class="device-pill">🖥 Desktop <strong>${devices.desktop}</strong></span>
     <span class="device-pill">📱 Mobile <strong>${devices.mobile}</strong></span>
     <span class="device-pill">⬜ Tablet <strong>${devices.tablet}</strong></span>
-  </section>`;
+  </section>
+  ${countries.length ? `<section class="country-bar">
+    <span class="device-label">Locations —</span>
+    ${countries.map(c => `<span class="device-pill">${escapeHtml(c.formatted)} <strong>${c.views}</strong></span>`).join(' ')}
+  </section>` : ''}`;
 
   const visitorRows = visitors.length
     ? visitors.map(v => {
@@ -172,14 +183,21 @@ export function dashboard(posts, session, notice = '', themes = [], activeTheme 
         : `<span class="badge badge-new">New (1x)</span>`;
       return `<tr>
           <td><code>${escapeHtml(v.ip_address)}</code></td>
+          <td>${escapeHtml(v.location || '—')}</td>
           <td>${escapeHtml(v.os)} · ${escapeHtml(v.browser)}</td>
           <td>${escapeHtml(v.device_type)}</td>
           <td>${badge}</td>
           <td class="num">${v.unique_pages}</td>
           <td>${formatDateTime(v.last_seen)}</td>
+          <td class="actions">
+            <form method="post" action="/dashboard/analytics/visitors/${encodeURIComponent(v.visitor_id)}/delete" class="inline-form" onsubmit="return confirm('Delete all records for this visitor?');">
+              <input type="hidden" name="_csrf" value="${escapeHtml(session.csrf_token)}">
+              <button type="submit" class="link-button danger">Delete</button>
+            </form>
+          </td>
         </tr>`;
     }).join('')
-    : '<tr><td colspan="6">No visitor traffic recorded yet.</td></tr>';
+    : '<tr><td colspan="8">No visitor traffic recorded yet.</td></tr>';
 
   const activityRows = recentActivity.length
     ? recentActivity.map(a => {
@@ -193,11 +211,18 @@ export function dashboard(posts, session, notice = '', themes = [], activeTheme 
           <td>${formatDateTime(a.viewed_at)}</td>
           <td><code>${escapeHtml(a.path)}</code></td>
           <td><code>${escapeHtml(a.ip_address)}</code></td>
+          <td>${escapeHtml(a.location || '—')}</td>
           <td>${escapeHtml(a.os)} · ${escapeHtml(a.browser)}</td>
           <td>${badge} ${pageRepeatBadge}</td>
+          <td class="actions">
+            <form method="post" action="/dashboard/analytics/views/${a.id}/delete" class="inline-form" onsubmit="return confirm('Delete this record?');">
+              <input type="hidden" name="_csrf" value="${escapeHtml(session.csrf_token)}">
+              <button type="submit" class="link-button danger">Delete</button>
+            </form>
+          </td>
         </tr>`;
     }).join('')
-    : '<tr><td colspan="5">No recent activity yet.</td></tr>';
+    : '<tr><td colspan="7">No recent activity yet.</td></tr>';
 
   const subscriberRows = subscribers.length
     ? subscribers.map(sub => `<tr>
@@ -212,25 +237,56 @@ export function dashboard(posts, session, notice = '', themes = [], activeTheme 
       </tr>`).join('')
     : '<tr><td colspan="3">No subscribers yet.</td></tr>';
 
+  const visitorPagination = renderPagination(vPage, totalVisitors, pageSize, 'vPage', `&aPage=${aPage}`);
+  const activityPagination = renderPagination(aPage, totalActivity, pageSize, 'aPage', `&vPage=${vPage}`);
+
   return `<section class="dashboard-heading"><div><h1>Posts</h1><p>${escapeHtml(session.email)}</p></div><a class="button" href="/dashboard/posts/new">New post</a></section>${message(notice, 'notice')}${statsBar}<section class="theme-picker"><form method="post" action="/dashboard/theme"><input type="hidden" name="_csrf" value="${escapeHtml(session.csrf_token)}"><label>Theme<select name="theme">${options}</select></label><button type="submit">Apply</button></form></section>
 <section>
   <h2>Posts &amp; Page Views</h2>
-  <table><thead><tr><th>Title</th><th>Status</th><th>Published</th><th>Views</th><th>Unique</th><th>Repeat</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table>
+  <div class="shadow-scroll-container">
+    <table><thead><tr><th>Title</th><th>Status</th><th>Published</th><th>Views</th><th>Unique</th><th>Repeat</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table>
+  </div>
 </section>
 
 <section class="analytics-section">
   <h2>Identified Visitors &amp; Nodes</h2>
-  <p class="section-hint">Identifies repeat systems, nodes, and visitors across your blog.</p>
-  <table><thead><tr><th>Node / IP</th><th>System (OS &amp; Browser)</th><th>Device</th><th>Visits</th><th>Pages</th><th>Last Seen</th></tr></thead><tbody>${visitorRows}</tbody></table>
+  <p class="section-hint">Identifies repeat systems, locations, and nodes with shadow scrolling &amp; pagination.</p>
+  <div class="shadow-scroll-container">
+    <table><thead><tr><th>Node / IP</th><th>Location</th><th>System (OS &amp; Browser)</th><th>Device</th><th>Visits</th><th>Pages</th><th>Last Seen</th><th>Actions</th></tr></thead><tbody>${visitorRows}</tbody></table>
+  </div>
+  ${visitorPagination}
 </section>
 
 <section class="analytics-section">
   <h2>Recent Activity Stream</h2>
-  <p class="section-hint">Real-time log of page views with returning visitor status.</p>
-  <table><thead><tr><th>Time</th><th>Page</th><th>Node / IP</th><th>System</th><th>Visit Status</th></tr></thead><tbody>${activityRows}</tbody></table>
+  <p class="section-hint">Real-time log of page views with location and returning visitor status.</p>
+  <div class="shadow-scroll-container">
+    <table><thead><tr><th>Time</th><th>Page</th><th>Node / IP</th><th>Location</th><th>System</th><th>Visit Status</th><th>Actions</th></tr></thead><tbody>${activityRows}</tbody></table>
+  </div>
+  ${activityPagination}
 </section>
 
-<section class="subscribers-section"><h2>Newsletter subscribers</h2><table><thead><tr><th>Email</th><th>Subscribed</th><th>Actions</th></tr></thead><tbody>${subscriberRows}</tbody></table></section>`;
+<section class="subscribers-section">
+  <h2>Newsletter subscribers</h2>
+  <div class="shadow-scroll-container">
+    <table><thead><tr><th>Email</th><th>Subscribed</th><th>Actions</th></tr></thead><tbody>${subscriberRows}</tbody></table>
+  </div>
+</section>`;
+}
+
+function renderPagination(currentPage, totalItems, pageSize, paramName, otherParams) {
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  if (totalPages <= 1) return '';
+  const prev = currentPage > 1
+    ? `<a class="page-link" href="?${paramName}=${currentPage - 1}${otherParams}">&larr; Prev</a>`
+    : `<span class="page-link disabled">&larr; Prev</span>`;
+  const next = currentPage < totalPages
+    ? `<a class="page-link" href="?${paramName}=${currentPage + 1}${otherParams}">Next &rarr;</a>`
+    : `<span class="page-link disabled">Next &rarr;</span>`;
+  return `<div class="pagination-bar">
+    <span>Showing page ${currentPage} of ${totalPages} (${totalItems} total)</span>
+    <div class="pagination-links">${prev} ${next}</div>
+  </div>`;
 }
 
 export function postForm({post, session, error = '', isNew = false}) {

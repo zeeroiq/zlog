@@ -516,3 +516,102 @@ code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.85em;
 }
+
+
+/* Country breakdown bar (dashboard) */
+.country-bar {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  font-family: var(--font-ui, system-ui, sans-serif);
+  font-size: 0.85rem;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+
+/* Shadow scroll container for tables */
+.shadow-scroll-container {
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 480px;
+  position: relative;
+  border: 1px solid var(--color-border, #d7d7d7);
+  border-radius: 6px;
+  background:
+    linear-gradient(var(--color-canvas, #fff) 30%, rgba(255, 255, 255, 0)),
+    linear-gradient(rgba(255, 255, 255, 0), var(--color-canvas, #fff) 70%) 0 100%,
+    radial-gradient(farthest-side at 50% 0, rgba(0, 0, 0, 0.14), rgba(0, 0, 0, 0)),
+    radial-gradient(farthest-side at 50% 100%, rgba(0, 0, 0, 0.14), rgba(0, 0, 0, 0)) 0 100%;
+  background-repeat: no-repeat;
+  background-size: 100% 40px, 100% 40px, 100% 14px, 100% 14px;
+  background-attachment: local, local, scroll, scroll;
+}
+
+[data-color-scheme="dark"] .shadow-scroll-container {
+  background:
+    linear-gradient(#121212 30%, rgba(18, 18, 18, 0)),
+    linear-gradient(rgba(18, 18, 18, 0), #121212 70%) 0 100%,
+    radial-gradient(farthest-side at 50% 0, rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0)),
+    radial-gradient(farthest-side at 50% 100%, rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0)) 0 100%;
+  background-repeat: no-repeat;
+  background-size: 100% 40px, 100% 40px, 100% 14px, 100% 14px;
+  background-attachment: local, local, scroll, scroll;
+}
+
+.shadow-scroll-container table {
+  margin: 0;
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+}
+
+.shadow-scroll-container thead th {
+  position: sticky;
+  top: 0;
+  background: var(--color-canvas, #fff);
+  z-index: 2;
+  border-bottom: 2px solid var(--color-border, #d7d7d7);
+}
+
+[data-color-scheme="dark"] .shadow-scroll-container thead th {
+  background: #1a1a1a;
+}
+
+/* Pagination controls */
+.pagination-bar {
+  align-items: center;
+  color: var(--color-muted, #666);
+  display: flex;
+  flex-wrap: wrap;
+  font-family: var(--font-ui, system-ui, sans-serif);
+  font-size: 0.85rem;
+  justify-content: space-between;
+  margin-top: 0.65rem;
+  gap: 0.5rem;
+}
+
+.pagination-links {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.page-link {
+  background: var(--color-code, #f4f4f4);
+  border: 1px solid var(--color-border, #d7d7d7);
+  border-radius: 4px;
+  color: var(--color-ink, #222);
+  display: inline-block;
+  padding: 0.25rem 0.65rem;
+  text-decoration: none;
+}
+
+.page-link:hover:not(.disabled) {
+  background: var(--color-accent, #174e81);
+  color: #fff;
+}
+
+.page-link.disabled {
+  color: var(--color-muted, #999);
+  cursor: not-allowed;
+  opacity: 0.5;
+}

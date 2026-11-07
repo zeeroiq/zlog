@@ -11,8 +11,13 @@ import {
   getReturningVisitorCount,
   getRepeatViewsCount,
   getDeviceBreakdown,
+  getCountryBreakdown,
   getVisitorsSummary,
   getRecentVisitorActivity,
+  getTotalVisitorsCount,
+  getTotalActivityCount,
+  deletePageView,
+  deleteVisitorRecords,
 } from '../analytics/analytics.js';
 import {listSubscribers, getSubscriberCount, deleteSubscriber} from '../newsletter/newsletter.js';
 
@@ -21,15 +26,27 @@ dashboardRouter.use(requireOwner);
 
 dashboardRouter.get('/', (request, response) => {
   const posts = listPosts();
+  const vPage = Math.max(1, parseInt(request.query.vPage, 10) || 1);
+  const aPage = Math.max(1, parseInt(request.query.aPage, 10) || 1);
+  const pageSize = 10;
+  const totalVisitors = getTotalVisitorsCount();
+  const totalActivity = getTotalActivityCount();
+
   const analytics = {
     totalViews:        getTotalPageViews(),
     uniqueVisitors:    getTotalUniqueVisitors(),
     returningVisitors: getReturningVisitorCount(),
     repeatViews:       getRepeatViewsCount(),
     devices:           getDeviceBreakdown(),
+    countries:         getCountryBreakdown(6),
     postViews:         getPostViewCounts(),
-    visitors:          getVisitorsSummary(20),
-    recentActivity:    getRecentVisitorActivity(20),
+    visitors:          getVisitorsSummary({limit: pageSize, offset: (vPage - 1) * pageSize}),
+    recentActivity:    getRecentVisitorActivity({limit: pageSize, offset: (aPage - 1) * pageSize}),
+    totalVisitors,
+    totalActivity,
+    vPage,
+    aPage,
+    pageSize,
     subscriberCount:   getSubscriberCount(),
   };
   const subscribers = listSubscribers();
@@ -100,6 +117,16 @@ dashboardRouter.post('/posts/:id/delete', requireCsrf, (request, response) => {
 dashboardRouter.post('/subscribers/:id/delete', requireCsrf, (request, response) => {
   deleteSubscriber(request.params.id);
   response.redirect('/dashboard?notice=Subscriber%20removed.');
+});
+
+dashboardRouter.post('/analytics/views/:id/delete', requireCsrf, (request, response) => {
+  deletePageView(request.params.id);
+  response.redirect('/dashboard?notice=Record%20deleted.');
+});
+
+dashboardRouter.post('/analytics/visitors/:visitorId/delete', requireCsrf, (request, response) => {
+  deleteVisitorRecords(request.params.visitorId);
+  response.redirect('/dashboard?notice=Visitor%20records%20cleared.');
 });
 
 function emptyPost() {

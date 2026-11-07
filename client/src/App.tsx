@@ -3,11 +3,14 @@ import type {FormEvent, ReactNode} from "react"
 import {
   Activity,
   BookOpen,
+  ChevronLeft,
+  ChevronRight,
   Eye,
   Globe,
   Laptop,
   LogOut,
   Mail,
+  MapPin,
   Plus,
   RotateCw,
   Smartphone,
@@ -39,6 +42,9 @@ type Subscriber = { id: number; email: string; subscribed_at: string }
 type Visitor = {
   visitor_id: string;
   ip_address: string;
+  country: string | null;
+  city: string | null;
+  location: string;
   device_type: string;
   os: string;
   browser: string;
@@ -54,6 +60,9 @@ type RecentActivity = {
   path: string;
   visitor_id: string;
   ip_address: string;
+  country: string | null;
+  city: string | null;
+  location: string;
   device_type: string;
   os: string;
   browser: string;
@@ -71,14 +80,23 @@ type PostViewStat = {
   returning_visitors?: number;
 }
 
+type CountryStat = {
+  country: string;
+  views: number;
+  formatted: string;
+}
+
 type Analytics = {
   totalViews: number;
   uniqueVisitors: number;
   returningVisitors: number;
   repeatViews: number;
   devices: { desktop: number; mobile: number; tablet: number; bot?: number };
+  countries?: CountryStat[];
   topPaths: { path: string; views: number; unique_visitors: number }[];
   postViews: PostViewStat[];
+  totalVisitors?: number;
+  totalActivity?: number;
   visitors: Visitor[];
   recentActivity: RecentActivity[];
 }
@@ -175,6 +193,25 @@ export default function App() {
     }
   };
 
+  const removeVisitor = async (visitorId: string) => {
+    if (!confirm("Delete all records for this visitor?")) return;
+    try {
+      await api(`/admin/analytics/visitors/${encodeURIComponent(visitorId)}`, {method: "DELETE"}, session.csrfToken);
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not delete visitor records.");
+    }
+  };
+
+  const removeActivity = async (id: number) => {
+    try {
+      await api(`/admin/analytics/views/${id}`, {method: "DELETE"}, session.csrfToken);
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not delete activity record.");
+    }
+  };
+
   const returnRate = analytics && analytics.uniqueVisitors > 0
     ? Math.round((analytics.returningVisitors / analytics.uniqueVisitors) * 100)
     : 0;
@@ -219,7 +256,7 @@ export default function App() {
                 <StatCard icon={<Mail className="size-4"/>} label="Subscribers" value={subscribersData?.count ?? 0}/>
               </div>
 
-              {/* Device breakdown bar */}
+              {/* Devices and Location pills */}
               <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                 <span className="font-medium text-foreground">Devices:</span>
                 <span className="rounded-md bg-muted px-2 py-0.5 inline-flex items-center gap-1">
@@ -231,6 +268,19 @@ export default function App() {
                 <span className="rounded-md bg-muted px-2 py-0.5 inline-flex items-center gap-1">
                   <Tablet className="size-3"/> Tablet: <strong>{analytics.devices?.tablet ?? 0}</strong>
                 </span>
+
+                {analytics.countries && analytics.countries.length > 0 && (
+                  <>
+                    <span className="ml-2 font-medium text-foreground inline-flex items-center gap-1">
+                      <MapPin className="size-3"/> Locations:
+                    </span>
+                    {analytics.countries.map(c => (
+                      <span key={c.country} className="rounded-md bg-muted px-2 py-0.5">
+                        {c.formatted} <strong>{c.views}</strong>
+                      </span>
+                    ))}
+                  </>
+                )}
               </div>
             </div>
           )}
@@ -290,7 +340,7 @@ export default function App() {
             </aside>
           </section>
 
-          {/* Identified Visitors & Nodes */}
+          {/* Identified Visitors & Nodes (with location, shadow scroll & pagination) */}
           {analytics && analytics.visitors && (
             <section>
               <div className="mb-3">
@@ -298,14 +348,14 @@ export default function App() {
                   <Globe className="size-5"/> Identified Visitors &amp; Nodes
                 </h2>
                 <p className="text-xs text-muted-foreground">
-                  Identifies which node, IP address, or system visited again and their repeat frequency.
+                  Identifies nodes, country/city locations, repeat visits, and system details with pagination and shadow scrolling.
                 </p>
               </div>
-              <VisitorList visitors={analytics.visitors}/>
+              <PaginatedVisitorList visitors={analytics.visitors} onRemove={removeVisitor}/>
             </section>
           )}
 
-          {/* Live Recent Activity Stream */}
+          {/* Live Recent Activity Stream (with location, shadow scroll & pagination) */}
           {analytics && analytics.recentActivity && (
             <section>
               <div className="mb-3">
@@ -313,10 +363,10 @@ export default function App() {
                   <Activity className="size-5"/> Live Activity Stream
                 </h2>
                 <p className="text-xs text-muted-foreground">
-                  Real-time page views showing repeat visits to individual pages.
+                  Real-time page views with location and repeat visit indicators.
                 </p>
               </div>
-              <ActivityList activity={analytics.recentActivity}/>
+              <PaginatedActivityList activity={analytics.recentActivity} onRemove={removeActivity}/>
             </section>
           )}
 
@@ -394,174 +444,293 @@ function PostList({posts, postViews}: { posts: Post[]; postViews: PostViewStat[]
   const viewMap = Object.fromEntries(postViews.map(pv => [pv.slug, pv]));
   return (
     <Card>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Title</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead className="text-right">Views</TableHead>
-            <TableHead className="text-right">Unique</TableHead>
-            <TableHead className="text-right">Repeat</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {posts.length ? posts.map(post => {
-            const stat = viewMap[post.slug];
-            return (
-              <TableRow key={post.id}>
-                <TableCell className="font-medium">{post.title}</TableCell>
-                <TableCell>
-                  <Badge variant={post.status === "published" ? "default" : "outline"} className="text-xs">
-                    {post.status}
-                  </Badge>
-                </TableCell>
-                <TableCell className="text-right tabular-nums">{stat?.views ?? 0}</TableCell>
-                <TableCell className="text-right tabular-nums">{stat?.unique_visitors ?? 0}</TableCell>
-                <TableCell className="text-right tabular-nums">{stat?.repeat_views ?? 0}</TableCell>
+      <div className="shadow-scroll-container">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Title</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead className="text-right">Views</TableHead>
+              <TableHead className="text-right">Unique</TableHead>
+              <TableHead className="text-right">Repeat</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {posts.length ? posts.map(post => {
+              const stat = viewMap[post.slug];
+              return (
+                <TableRow key={post.id}>
+                  <TableCell className="font-medium">{post.title}</TableCell>
+                  <TableCell>
+                    <Badge variant={post.status === "published" ? "default" : "outline"} className="text-xs">
+                      {post.status}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">{stat?.views ?? 0}</TableCell>
+                  <TableCell className="text-right tabular-nums">{stat?.unique_visitors ?? 0}</TableCell>
+                  <TableCell className="text-right tabular-nums">{stat?.repeat_views ?? 0}</TableCell>
+                </TableRow>
+              );
+            }) : (
+              <TableRow>
+                <TableCell colSpan={5} className="text-muted-foreground">No posts yet.</TableCell>
               </TableRow>
-            );
-          }) : (
-            <TableRow>
-              <TableCell colSpan={5} className="text-muted-foreground">No posts yet.</TableCell>
-            </TableRow>
-          )}
-        </TableBody>
-      </Table>
+            )}
+          </TableBody>
+        </Table>
+      </div>
     </Card>
   );
 }
 
-function VisitorList({visitors}: { visitors: Visitor[] }) {
+function PaginatedVisitorList({visitors, onRemove}: { visitors: Visitor[]; onRemove: (visitorId: string) => Promise<void> }) {
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
+  const totalPages = Math.max(1, Math.ceil(visitors.length / pageSize));
+  const displayed = visitors.slice((page - 1) * pageSize, page * pageSize);
+
   return (
     <Card>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Node / IP</TableHead>
-            <TableHead>System (OS &amp; Browser)</TableHead>
-            <TableHead>Device</TableHead>
-            <TableHead>Repeat Status</TableHead>
-            <TableHead className="text-right">Pages</TableHead>
-            <TableHead className="text-right">Last Seen</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {visitors.length ? visitors.map((v, i) => (
-            <TableRow key={v.visitor_id || i}>
-              <TableCell className="font-mono text-xs">{v.ip_address}</TableCell>
-              <TableCell className="text-sm">{v.os} · {v.browser}</TableCell>
-              <TableCell className="capitalize text-xs text-muted-foreground">{v.device_type}</TableCell>
-              <TableCell>
-                {v.is_returning ? (
-                  <Badge className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs">
-                    Returning ({v.total_visits}x)
-                  </Badge>
-                ) : (
-                  <Badge variant="secondary" className="text-xs">
-                    New (1x)
-                  </Badge>
-                )}
-              </TableCell>
-              <TableCell className="text-right tabular-nums text-xs">{v.unique_pages}</TableCell>
-              <TableCell className="text-right text-xs text-muted-foreground">
-                {v.last_seen ? new Date(v.last_seen).toLocaleString(undefined, {dateStyle: "short", timeStyle: "short"}) : "—"}
-              </TableCell>
-            </TableRow>
-          )) : (
+      <div className="shadow-scroll-container">
+        <Table>
+          <TableHeader>
             <TableRow>
-              <TableCell colSpan={6} className="text-muted-foreground">No visitor records yet.</TableCell>
+              <TableHead>Node / IP</TableHead>
+              <TableHead>Location</TableHead>
+              <TableHead>System (OS &amp; Browser)</TableHead>
+              <TableHead>Device</TableHead>
+              <TableHead>Repeat Status</TableHead>
+              <TableHead className="text-right">Pages</TableHead>
+              <TableHead className="text-right">Last Seen</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
             </TableRow>
-          )}
-        </TableBody>
-      </Table>
+          </TableHeader>
+          <TableBody>
+            {displayed.length ? displayed.map((v, i) => (
+              <TableRow key={v.visitor_id || i}>
+                <TableCell className="font-mono text-xs">{v.ip_address}</TableCell>
+                <TableCell className="text-xs whitespace-nowrap">{v.location || "—"}</TableCell>
+                <TableCell className="text-xs">{v.os} · {v.browser}</TableCell>
+                <TableCell className="capitalize text-xs text-muted-foreground">{v.device_type}</TableCell>
+                <TableCell>
+                  {v.is_returning ? (
+                    <Badge className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs">
+                      Returning ({v.total_visits}x)
+                    </Badge>
+                  ) : (
+                    <Badge variant="secondary" className="text-xs">
+                      New (1x)
+                    </Badge>
+                  )}
+                </TableCell>
+                <TableCell className="text-right tabular-nums text-xs">{v.unique_pages}</TableCell>
+                <TableCell className="text-right text-xs text-muted-foreground whitespace-nowrap">
+                  {v.last_seen ? new Date(v.last_seen).toLocaleString(undefined, {dateStyle: "short", timeStyle: "short"}) : "—"}
+                </TableCell>
+                <TableCell className="text-right">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs text-destructive hover:text-destructive"
+                    onClick={() => void onRemove(v.visitor_id)}
+                  >
+                    Delete
+                  </Button>
+                </TableCell>
+              </TableRow>
+            )) : (
+              <TableRow>
+                <TableCell colSpan={8} className="text-muted-foreground">No visitor records yet.</TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
+      <TablePagination
+        page={page}
+        totalPages={totalPages}
+        totalItems={visitors.length}
+        pageSize={pageSize}
+        onPageChange={setPage}
+      />
     </Card>
   );
 }
 
-function ActivityList({activity}: { activity: RecentActivity[] }) {
+function PaginatedActivityList({activity, onRemove}: { activity: RecentActivity[]; onRemove: (id: number) => Promise<void> }) {
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
+  const totalPages = Math.max(1, Math.ceil(activity.length / pageSize));
+  const displayed = activity.slice((page - 1) * pageSize, page * pageSize);
+
   return (
     <Card>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Time</TableHead>
-            <TableHead>Page</TableHead>
-            <TableHead>Node / IP</TableHead>
-            <TableHead>System</TableHead>
-            <TableHead>Visit Status</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {activity.length ? activity.map(a => (
-            <TableRow key={a.id}>
-              <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                {new Date(a.viewed_at).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit", second: "2-digit"})}
-              </TableCell>
-              <TableCell className="font-mono text-xs max-w-[200px] truncate">{a.path}</TableCell>
-              <TableCell className="font-mono text-xs">{a.ip_address}</TableCell>
-              <TableCell className="text-xs">{a.os} · {a.browser}</TableCell>
-              <TableCell className="space-x-1.5">
-                {a.is_returning ? (
-                  <Badge className="bg-emerald-600 text-white text-[11px] py-0">
-                    Returning (#{a.visit_number})
-                  </Badge>
-                ) : (
-                  <Badge variant="outline" className="text-[11px] py-0 text-muted-foreground">
-                    New
-                  </Badge>
-                )}
-                {Boolean(a.is_page_repeat) && (
-                  <Badge variant="secondary" className="text-[11px] py-0 bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300">
-                    Page Repeat
-                  </Badge>
-                )}
-              </TableCell>
-            </TableRow>
-          )) : (
+      <div className="shadow-scroll-container">
+        <Table>
+          <TableHeader>
             <TableRow>
-              <TableCell colSpan={5} className="text-muted-foreground">No activity recorded yet.</TableCell>
+              <TableHead>Time</TableHead>
+              <TableHead>Page</TableHead>
+              <TableHead>Node / IP</TableHead>
+              <TableHead>Location</TableHead>
+              <TableHead>System</TableHead>
+              <TableHead>Visit Status</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
             </TableRow>
-          )}
-        </TableBody>
-      </Table>
+          </TableHeader>
+          <TableBody>
+            {displayed.length ? displayed.map(a => (
+              <TableRow key={a.id}>
+                <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                  {new Date(a.viewed_at).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit", second: "2-digit"})}
+                </TableCell>
+                <TableCell className="font-mono text-xs max-w-[180px] truncate">{a.path}</TableCell>
+                <TableCell className="font-mono text-xs">{a.ip_address}</TableCell>
+                <TableCell className="text-xs whitespace-nowrap">{a.location || "—"}</TableCell>
+                <TableCell className="text-xs">{a.os} · {a.browser}</TableCell>
+                <TableCell className="space-x-1.5 whitespace-nowrap">
+                  {a.is_returning ? (
+                    <Badge className="bg-emerald-600 text-white text-[11px] py-0">
+                      Returning (#{a.visit_number})
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-[11px] py-0 text-muted-foreground">
+                      New
+                    </Badge>
+                  )}
+                  {Boolean(a.is_page_repeat) && (
+                    <Badge variant="secondary" className="text-[11px] py-0 bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300">
+                      Page Repeat
+                    </Badge>
+                  )}
+                </TableCell>
+                <TableCell className="text-right">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs text-destructive hover:text-destructive"
+                    onClick={() => void onRemove(a.id)}
+                  >
+                    Delete
+                  </Button>
+                </TableCell>
+              </TableRow>
+            )) : (
+              <TableRow>
+                <TableCell colSpan={7} className="text-muted-foreground">No activity recorded yet.</TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
+      <TablePagination
+        page={page}
+        totalPages={totalPages}
+        totalItems={activity.length}
+        pageSize={pageSize}
+        onPageChange={setPage}
+      />
     </Card>
+  );
+}
+
+function TablePagination({
+  page,
+  totalPages,
+  totalItems,
+  pageSize,
+  onPageChange,
+}: {
+  page: number;
+  totalPages: number;
+  totalItems: number;
+  pageSize: number;
+  onPageChange: (next: number) => void;
+}) {
+  if (totalItems <= pageSize) return null;
+  const start = (page - 1) * pageSize + 1;
+  const end = Math.min(page * pageSize, totalItems);
+
+  return (
+    <div className="flex items-center justify-between border-t px-4 py-2.5 text-xs text-muted-foreground">
+      <span>
+        Showing {start}-{end} of {totalItems}
+      </span>
+      <div className="flex items-center gap-1.5">
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 px-2 text-xs"
+          disabled={page <= 1}
+          onClick={() => onPageChange(page - 1)}
+        >
+          <ChevronLeft className="size-3 mr-0.5"/> Prev
+        </Button>
+        <span className="px-1 text-xs">
+          Page {page} of {totalPages}
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 px-2 text-xs"
+          disabled={page >= totalPages}
+          onClick={() => onPageChange(page + 1)}
+        >
+          Next <ChevronRight className="size-3 ml-0.5"/>
+        </Button>
+      </div>
+    </div>
   );
 }
 
 function SubscriberList({subscribers, onRemove}: { subscribers: Subscriber[]; onRemove: (id: number) => Promise<void> }) {
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
+  const totalPages = Math.max(1, Math.ceil(subscribers.length / pageSize));
+  const displayed = subscribers.slice((page - 1) * pageSize, page * pageSize);
+
   return (
     <Card>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Email</TableHead>
-            <TableHead>Subscribed</TableHead>
-            <TableHead/>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {subscribers.length ? subscribers.map(sub => (
-            <TableRow key={sub.id}>
-              <TableCell className="font-medium">{sub.email}</TableCell>
-              <TableCell>{new Date(sub.subscribed_at).toLocaleDateString()}</TableCell>
-              <TableCell className="text-right">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-destructive hover:text-destructive"
-                  onClick={() => void onRemove(sub.id)}
-                >
-                  Remove
-                </Button>
-              </TableCell>
-            </TableRow>
-          )) : (
+      <div className="shadow-scroll-container">
+        <Table>
+          <TableHeader>
             <TableRow>
-              <TableCell colSpan={3} className="text-muted-foreground">No subscribers yet.</TableCell>
+              <TableHead>Email</TableHead>
+              <TableHead>Subscribed</TableHead>
+              <TableHead/>
             </TableRow>
-          )}
-        </TableBody>
-      </Table>
+          </TableHeader>
+          <TableBody>
+            {displayed.length ? displayed.map(sub => (
+              <TableRow key={sub.id}>
+                <TableCell className="font-medium">{sub.email}</TableCell>
+                <TableCell>{new Date(sub.subscribed_at).toLocaleDateString()}</TableCell>
+                <TableCell className="text-right">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-destructive hover:text-destructive"
+                    onClick={() => void onRemove(sub.id)}
+                  >
+                    Remove
+                  </Button>
+                </TableCell>
+              </TableRow>
+            )) : (
+              <TableRow>
+                <TableCell colSpan={3} className="text-muted-foreground">No subscribers yet.</TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
+      <TablePagination
+        page={page}
+        totalPages={totalPages}
+        totalItems={subscribers.length}
+        pageSize={pageSize}
+        onPageChange={setPage}
+      />
     </Card>
   );
 }
